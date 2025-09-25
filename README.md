@@ -1,7 +1,7 @@
 # murkmod
 
 murkmod is a continuation of fakemurk and mush that includes additional useful utilities, with the most prominent being a plugin manager.
-the original can be found [here](https://github.com/rainestorme/murkmod)
+the original can be found [here](https://github.com/AerialiteLabs/murkmod)
 ## Installation
 
 > [!NOTE]
@@ -13,7 +13,7 @@ the original can be found [here](https://github.com/rainestorme/murkmod)
 Enter developer mode (either while enrolled or unenrolled) and boot into ChromeOS. Connect to WiFi, but don't log in. Open VT2 by pressing `Ctrl+Alt+F2 (Forward)` and log in as `root`. Run the following command:
 
 ```sh
-bash <(curl -SLk https://bit.ly/scaryMurkmod)
+bash <(curl -SLk https://bit.ly/al-murkmod)
 ```
 
 Select the chromeOS milestone you want to install with murkmod. The script will then automatically download the correct recovery image, patch it, and install it to your device. Once the installation is complete, the system will reboot into a murkmod-patched rootfs.
@@ -35,12 +35,12 @@ For more information on installation of murkmod, including alternate instruction
 - Plugin manager
    - Multiple supported languages: Bash and JavaScript (Python support is in the works)
    - Easy system development: Plugins can run as daemons in the background, upon startup, or when a user triggers them
-   - Simple API: Read the docs [here](https://github.com/rainestorme/murkmod/blob/main/docs/plugin_dev.md)
+   - Simple API: Read the docs [here](https://github.com/AerialiteLabs/murkmod/blob/main/docs/plugin_dev.md)
 - Support for newer versions of ChromeOS (R116 and up)
    - Experimental Crouton audio support on newer versions
 - Improved privacy (Analytics completely removed and no automatic updates)
-- Multiple versatile [installation methods](https://github.com/rainestorme/murkmod/blob/main/docs/installation.md)
-   - Direct flashing to system storage via [SH1mmer-SMUT](https://github.com/cognito-inc-real/SH1mmer-SMUT)
+- Multiple versatile [installation methods](https://github.com/AerialiteLabs/murkmod/blob/main/docs/installation.md)
+   - Direct flashing to system storage via [Aurora](https://github.com/AerialiteLabs/Aurora)
    - Installation from VT2 via the devmode installer
    - Or upgrade *any pre-existing fakemurk installation*\* to murkmod with a single command
 - Graphical helper extension
