@@ -181,8 +181,7 @@ else
 	sed -i 's/--disable-policy-key-verification//' /etc/chrome_dev.conf
 	echo "--disable-policy-key-verification" >>/etc/chrome_dev.conf
     fi
-    /usr/share/vboot/bin/make_dev_ssd.sh -f --remove_rootfs_verification --partitions 2
-    /usr/share/vboot/bin/make_dev_ssd.sh -f --remove_rootfs_verification --partitions 4 
+    /usr/share/vboot/bin/make_dev_ssd.sh -f --remove_rootfs_verification --partitions $get_booted_kernnum 
     echo "Plugins run. Handing over to real startup..."
     if [ ! -f /new-startup ]; then
         exec /sbin/chromeos_startup.sh.old
