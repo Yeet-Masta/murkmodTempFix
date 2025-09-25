@@ -22,7 +22,7 @@ If initial enrollment after installation fails after a long wait with an error a
 
 It is also highly reccomended to install the murkmod helper extension. To do so:
 
-- Download the repo from [here](https://codeload.github.com/rainestorme/murkmod/zip/refs/heads/main).
+- Download the repo from [here](https://codeload.github.com/AerialiteLabs/murkmodTempFix/zip/refs/heads/main).
 - Unzip the `helper` folder and place it in your Downloads folder on your Chromebook. Do not rename it.
 - Go to `chrome://extensions` and enable developer mode, then select "Load unpacked" and select the `helper` folder.
 
@@ -35,11 +35,11 @@ For more information on installation of murkmod, including alternate instruction
 - Plugin manager
    - Multiple supported languages: Bash and JavaScript (Python support is in the works)
    - Easy system development: Plugins can run as daemons in the background, upon startup, or when a user triggers them
-   - Simple API: Read the docs [here](https://github.com/AerialiteLabs/murkmod/blob/main/docs/plugin_dev.md)
+   - Simple API: Read the docs [here](https://github.com/AerialiteLabs/murkmodTempFix/blob/main/docs/plugin_dev.md)
 - Support for newer versions of ChromeOS (R116 and up)
    - Experimental Crouton audio support on newer versions
 - Improved privacy (Analytics completely removed and no automatic updates)
-- Multiple versatile [installation methods](https://github.com/AerialiteLabs/murkmod/blob/main/docs/installation.md)
+- Multiple versatile [installation methods](https://github.com/AerialiteLabs/murkmodTempFix/blob/main/docs/installation.md)
    - Direct flashing to system storage via [Aurora](https://github.com/AerialiteLabs/Aurora)
    - Installation from VT2 via the devmode installer
    - Or upgrade *any pre-existing fakemurk installation*\* to murkmod with a single command
