@@ -26,7 +26,7 @@ lsbval() {
 }
 
 get_asset() {
-    curl -s -f "https://api.github.com/repos/xXMariahScaryXx/murkmodTempFix/contents/$1" | jq -r ".content" | base64 -d
+    curl -s -f "https://api.github.com/repos/AerialiteLabs/murkmodTempFix/contents/$1" | jq -r ".content" | base64 -d
 }
 
 install() {
