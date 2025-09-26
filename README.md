@@ -2,6 +2,8 @@
 
 murkmod is a continuation of fakemurk and mush that includes additional useful utilities, with the most prominent being a plugin manager.
 the original can be found [here](https://github.com/rainestorme/murkmod)
+
+progress on integrating policyedit is very good, howver, i am waiting for vk6 to respond on how i should handle licensing though seeing as rainestorme put an MIT license while policyedit uses gpl-3
 ## Installation
 
 > [!NOTE]
@@ -9,6 +11,7 @@ the original can be found [here](https://github.com/rainestorme/murkmod)
 
 > [!WARNING]
 > murkmod is not officially tested on any release milestone past `v118` (`pheonix`). It will likely continue to work on future versions, but use caution with anything >`v122`.
+> with integrated policyedit, it should be possible to modify user policies by simply changing the scope from user to machine; this also negates the need for pollen entirely. this'll ideally allow you to boot modern (132+) versions while still having control over policies!!
 
 Enter developer mode (either while enrolled or unenrolled) and boot into ChromeOS. Connect to WiFi, but don't log in. Open VT2 by pressing `Ctrl+Alt+F2 (Forward)` and log in as `root`. Run the following command:
 
