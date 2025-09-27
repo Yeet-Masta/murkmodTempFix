@@ -46,7 +46,15 @@ This command will download and install murkmod to your device. Once the installa
 
 ## Common Installation Steps
 
-~~If initial enrollment after installation fails after a long wait with an error about enrollment certificates, DON'T PANIC! This is normal. Perform an EC reset (`Refresh+Power`) and press space and then enter to *disable developer mode*. As soon as the screen backlight turns off, perform another EC reset and wait for the "ChromeOS is missing or damaged" screen to appear. Enter recovery mode (`Esc+Refresh+Power`) and press Ctrl+D and enter to enable developer mode, then enroll again. This time it should succeed.~~ Don't do this, something about making the rootfs RW-able has caused powerwashes to actually make murkmod unbootable if done. Instead, before continuing through oobe you should open vt2, login as root, and run `vpd -i RW_VPD -s check_enrollment=1; restart ui`. So long as your device secret and s/n haven't been tampered with, this should re-enroll you without the obscenely long delay. Also when policyedit is integrated, you'll have to change the asterisks in your policies.json open network configuration to the actual password, see [policy password tool](https://luphoria.com/netlog-policy-password-tool 
+~~If initial enrollment after installation fails after a long wait with an error about enrollment certificates, DON'T PANIC! This is normal. Perform an EC reset (`Refresh+Power`) and press space and then enter to *disable developer mode*. As soon as the screen backlight turns off, perform another EC reset and wait for the "ChromeOS is missing or damaged" screen to appear. Enter recovery mode (`Esc+Refresh+Power`) and press Ctrl+D and enter to enable developer mode, then enroll again. This time it should succeed.~~ Don't do this, something about making the rootfs RW-able has caused powerwashes to actually make murkmod unbootable if done. Instead, before continuing through oobe you should open vt2, login as root, and run `vpd -i RW_VPD -s check_enrollment=1; restart ui`. So long as your device secret and s/n haven't been tampered with, this should re-enroll you without the obscenely long delay. Also when policyedit is integrated, you'll have to change the asterisks in your policies.json open network configuration to the actual password, see [policy password tool](https://luphoria.com/netlog-policy-password-tool
+<br>
+## Unbricking
+If murkmod does brick (hangs on init, can still open vt2 though in my experience) and you need to boot normal chromeOS in a pinch (don't have an aurora usb you can recover with, recovery would take too long, etc..) then:
+1. open a root shell
+2. lsblk, look for where / is mounted
+3. if / is mounted to 3, you want to change kern priorty to prioritize 4, if / is mounted to 5, you want to change kern priority to prioritize 2
+4. `cgpt add /dev/mmcblk0 -i 2 -P 0 && cgpt add /dev/mmcblk0 -i 4 -P 1` (-i is partition number, -P is priority, and obviously partitions 2 and 4 are KERN-A and KERN-B respectively. flip -P 0 and -P 1 to prioritize the unmurked one)
+5. (optional) dd the unmurked rootfs to the murked one `dd if=/dev/mmcblk0p(3 or 5) of=/dev/mmcblk0p(opposite) bs=100K status=progress`
 
 ## The murkmod helper extension
 
