@@ -10,23 +10,17 @@ murkmod has seen many iterations, and due to this, there are many methods availa
 Enter developer mode (either while enrolled or unenrolled) and boot into ChromeOS. Connect to WiFi, but don't log in. Open VT2 by pressing `Ctrl+Alt+F2 (Forward)` and log in as `root`. Run the following command:
 
 ```sh
-bash <(curl -SLk https://raw.githubusercontent.com/crosbreaker/murkmodTempFix/main/murkmod-devmode.sh)
+bash <(curl -SLk bit.ly/al-murkmod)
 ```
 
 Select the chromeOS milestone you want to install with murkmod. The script will then automatically download the correct recovery image, patch it, and install it to your device. Once the installation is complete, the system will reboot into a murkmod-patched rootfs. Continue to [Common Installation Steps](#common-installation-steps).
 
-## SH1mmer-SMUT
+## Aurora 
 
-> [!WARNING]
-> If you have FWMP set, you will have to use the pencil method/a [3D printed chip clip](https://www.tinkercad.com/things/kWIgDztbX4s-soic-8-on-motherboard-stealth-chip-clip) with a glob of solder or a wire to short out the corresponding pins as to disable WP. Otherwise, if your device has not been affected by the Tsunami, you can continue to the normal instructions.
-
-Create a [SH1mmer-SMUT](https://github.com/cognito-inc-real/sh1mmer-smut) image with a murkmod image built with the image_patcher.sh script - instructions are in the repo.
-
-Once you've done this, flash the image to a drive. Pop off the back of your Chromebook and remove the battery to disable WP.
-
-Now, boot into the flashed USB drive as you would with normal SH1mmer. From there, select `Utiliites` > `Unblock Devmode`. Head back and select `Payloads` > `SH1mmer Multiboot UTility (SMUT)` - answer `Y` at the prompt to defog and select option 1 (`Install fakemurk/murkmod image to unused partition`) and then enter the exact filename of the image you created earlier.
-
-Follow all prompts and wait for the installation to complete (the kernel patch is 512mb and the root patch is 4gb). The system will reboot automatically. Continue to [Common Installation Steps](#common-installation-steps).
+Prerequisites: 
+**WP disabled, GBB flags set**
+<br>
+Create an [Aurora](https://github.com/aerialitelabs/aurora) image and place a murkmod image built with the image_patcher.sh script into usr/share/images/recovery/
 
 ### fakemurk > murkmod upgrade
 
@@ -39,7 +33,7 @@ Follow all prompts and wait for the installation to complete (the kernel patch i
 To install murkmod, simply spawn a root shell (option 1) from mush, and paste in the following command:
 
 ```sh
-bash <(curl -SLk https://raw.githubusercontent.com/crosbreaker/murkmodTempFix/main/murkmod.sh)
+bash <(curl -SLk https://raw.githubusercontent.com/aerialitelabs/murkmodTempFix/main/murkmod.sh)
 ```
 
 This command will download and install murkmod to your device. Once the installation is complete, you can start using murkmod by opening mush as usual.
@@ -56,8 +50,8 @@ If initial enrollment after installation fails after a long wait with an error a
 
 ## The murkmod helper extension
 
-murkmod also has an optional, but highly reccomended helper extension that acts as a graphical abstraction over the top of mush, the murkmod developer shell. To install it:
+murkmod also has an optional (recommended by rainestorme, not by me) helper extension that acts as a graphical abstraction over the top of mush, the murkmod developer shell. To install it:
 
-- Download the repo from [here](https://codeload.github.com/rainestorme/murkmod/zip/refs/heads/main)
+- Download the repo from [here](https://codeload.github.com/aerialitelabs/murkmodtempfix/zip/refs/heads/main)
 - Unzip the `helper` folder and place it anywhere you want on your Chromebook, ideally in your Downloads folder
 - Go to `chrome://extensions` and enable developer mode, then select "Load unpacked" and select the `helper` folder
