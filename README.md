@@ -1,6 +1,5 @@
 # murkmod
-hi gigaton!
-murkmod is a continuation of fakemurk and mush that includes additional useful utilities, with the most prominent being a plugin manager.
+murkmod is a continuation of fakemurk and mush that includes additional useful utilities, with the most prominent being a policy manager.
 the original can be found [here](https://github.com/rainestorme/murkmod)
 
 progress on integrating policyedit is very good, howver, i am waiting for vk6 to respond on how i should handle licensing though seeing as rainestorme put an MIT license while policyedit uses gpl-3
