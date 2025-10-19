@@ -2,27 +2,23 @@
 
 # image_patcher.sh
 # written based on the original by coolelectronics and r58, modified heavily for murkmod
+# R125 compatibility added
 
 CURRENT_MAJOR=6
 CURRENT_MINOR=1
 CURRENT_VERSION=2
 
-# God damn, there are a lot of unused functions in here!
-# future rainestorme: finally cleaned it up! :D
-
 ascii_info() {
     echo -e "                      __                      .___\n  _____  __ _________|  | __ _____   ____   __| _/\n /     \|  |  \_  __ \  |/ //     \ /  _ \ / __ | \n|  Y Y  \  |  /|  | \/    <|  Y Y  (  <_> ) /_/ | \n|__|_|  /____/ |__|  |__|_ \__|_|  /\____/\____ | \n      \/                  \/     \/            \/\n"
     echo "        The fakemurk plugin manager - v$CURRENT_MAJOR.$CURRENT_MINOR.$CURRENT_VERSION"
-
-    # spaces get mangled by makefile, so this must be separate
 }
+
 nullify_bin() {
     cat <<-EOF >$1
 #!/bin/bash
 exit
 EOF
     chmod 777 $1
-    # shebangs crash makefile
 }
 
 . /usr/share/misc/chromeos-common.sh || :
@@ -39,12 +35,10 @@ leave() {
     exit
 }
 
-
 sed_escape() {
     echo -n "$1" | while read -n1 ch; do
         if [[ "$ch" == "" ]]; then
             echo -n "\n"
-            # dumbass shellcheck not expanding is the entire point
         fi
         echo -n "\\x$(printf %x \'"$ch")"
     done
@@ -57,15 +51,9 @@ move_bin() {
 }
 
 disable_autoupdates() {
-    # thanks phene i guess?
-    # this is an intentionally broken url so it 404s, but doesn't trip up network logging
     sed -i "$ROOT/etc/lsb-release" -e "s/CHROMEOS_AUSERVER=.*/CHROMEOS_AUSERVER=$(sed_escape "https://updates.gooole.com/update")/"
-
-    # we don't want to take ANY chances
     move_bin "$ROOT/usr/sbin/chromeos-firmwareupdate"
     nullify_bin "$ROOT/usr/sbin/chromeos-firmwareupdate"
-
-    # bye bye trollers! (trollers being cros devs)
     rm -rf "$ROOT/opt/google/cr50/firmware/" || :
 }
 
@@ -83,6 +71,114 @@ configure_binaries(){
   fi
 }
 
+# R125 FIX: Add version-specific patches
+patch_r125_specific() {
+    local ROOT="$1"
+    local milestone="$2"
+    
+    echo "=== Applying R125+ Compatibility Patches ==="
+    
+    # 1. Fix systemd-logind interaction
+    echo "Installing systemd-logind compatibility layer..."
+    mkdir -p "$ROOT/etc/systemd/system/systemd-logind.service.d"
+    cat > "$ROOT/etc/systemd/system/systemd-logind.service.d/10-murkmod.conf" <<'EOF'
+[Service]
+# Wait for murkmod startup to complete before managing VTs
+ExecStartPre=/bin/bash -c 'timeout 30 sh -c "while [ -f /run/murkmod-critical-startup ]; do sleep 0.5; done" || true'
+Restart=on-failure
+RestartSec=5
+EOF
+
+    # 2. Create VT unlock service
+    echo "Creating VT unlock service..."
+    cat > "$ROOT/etc/systemd/system/murkmod-vt-unlock.service" <<'EOF'
+[Unit]
+Description=Murkmod VT Unlock After Startup
+After=chromeos_startup.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'for vt in tty2 tty3 tty4 tty5 tty6; do [ -c /dev/$vt ] && chmod 620 /dev/$vt 2>/dev/null || true; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    chmod 644 "$ROOT/etc/systemd/system/murkmod-vt-unlock.service"
+    
+    # 3. Enable the service
+    if [ -x "$ROOT/bin/systemctl" ] || [ -x "$ROOT/usr/bin/systemctl" ]; then
+        mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
+        ln -sf /etc/systemd/system/murkmod-vt-unlock.service \
+            "$ROOT/etc/systemd/system/multi-user.target.wants/murkmod-vt-unlock.service" 2>/dev/null || true
+    fi
+    
+    # 4. Fix Terminal app for R125+ (vsh-based)
+    if [ -f "$ROOT/usr/bin/vsh" ]; then
+        echo "Patching vsh for R125+ Terminal app..."
+        move_bin "$ROOT/usr/bin/vsh"
+        
+        cat > "$ROOT/usr/bin/vsh" <<'VSHEOF'
+#!/bin/bash
+# Murkmod vsh wrapper for R125+
+
+# Check if Terminal app is launching us
+if [[ "$*" == *"--"* ]] || [ -z "$*" ]; then
+    # Redirect to mush instead
+    exec /usr/bin/crosh
+else
+    # Other use of vsh - call original
+    if [ -x /usr/bin/vsh.old ]; then
+        exec /usr/bin/vsh.old "$@"
+    else
+        # Fallback to crosh
+        exec /usr/bin/crosh
+    fi
+fi
+VSHEOF
+        chmod 755 "$ROOT/usr/bin/vsh"
+        echo "vsh patched successfully"
+    else
+        echo "vsh not found - Terminal app may use different method on this version"
+    fi
+    
+    # 5. Add fallback for chrome://terminal
+    if [ -d "$ROOT/opt/google/chrome" ]; then
+        echo "Adding Terminal app fallback..."
+        # The Terminal PWA might be in different locations depending on version
+        # We'll create a marker file that daemon.sh can check
+        touch "$ROOT/var/murkmod_r125_terminal_needs_fix"
+    fi
+    
+    # 6. Create diagnostic script
+    cat > "$ROOT/usr/local/bin/murkmod-diagnose" <<'DIAGEOF'
+#!/bin/bash
+echo "=== Murkmod R125+ Diagnostic ==="
+echo "ChromeOS Version: $(cat /etc/lsb-release | grep CHROMEOS_RELEASE_CHROME_MILESTONE | cut -d= -f2)"
+echo ""
+echo "=== systemd-logind status ==="
+systemctl status systemd-logind.service --no-pager 2>&1 | head -20
+echo ""
+echo "=== VT permissions ==="
+ls -la /dev/tty[0-9]* 2>/dev/null
+echo ""
+echo "=== Murkmod startup status ==="
+[ -f /var/run/murkmod-startup-complete ] && echo "✓ Startup complete" || echo "✗ Startup not complete"
+[ -f /run/murkmod-critical-startup ] && echo "✗ IN CRITICAL STARTUP (VT2 UNSAFE)" || echo "✓ Not in critical startup"
+echo ""
+echo "=== Terminal/crosh binaries ==="
+ls -la /usr/bin/crosh* /usr/bin/vsh* 2>/dev/null
+echo ""
+echo "=== Recent journal errors ==="
+journalctl -b --no-pager 2>/dev/null | grep -i "tty\|logind\|console\|panic" | tail -30
+DIAGEOF
+    chmod 755 "$ROOT/usr/local/bin/murkmod-diagnose"
+    
+    echo "=== R125+ Compatibility Patches Applied ==="
+}
+
 patch_root() {
     echo "Staging populator..."
     >$ROOT/population_required
@@ -90,26 +186,42 @@ patch_root() {
     echo "Murkmod-ing root..."
     echo "Disabling autoupdates..."
     disable_autoupdates
+    
     local milestone=$(lsbval CHROMEOS_RELEASE_CHROME_MILESTONE $ROOT/etc/lsb-release)
+    echo "Detected ChromeOS milestone: R$milestone"
+    
+    # R125 FIX: Check if version is too new
+    if [ "$milestone" -gt "122" ]; then
+        echo "⚠️  WARNING: ChromeOS R$milestone detected!"
+        echo "⚠️  Murkmod was only tested up to R118."
+        echo "⚠️  R$milestone has significant changes that required compatibility patches."
+        echo "⚠️  Applying R125-specific patches..."
+        
+        # Apply R125 patches
+        patch_r125_specific "$ROOT" "$milestone"
+    fi
+    
     echo "Installing startup scripts..."
     move_bin "$ROOT/sbin/chromeos_startup.sh"
     if [ "$milestone" -gt "116" ]; then
-        echo "Detected newer version of CrOS, using new chromeos_startup"
+        echo "Detected v116 or higher, using new chromeos_startup"
         move_bin "$ROOT/sbin/chromeos_startup"
         install "chromeos_startup.sh" $ROOT/sbin/chromeos_startup
-        chmod 755 $ROOT/sbin/chromeos_startup # whoops
+        chmod 755 $ROOT/sbin/chromeos_startup
         touch $ROOT/new-startup
     else
         move_bin "$ROOT/sbin/chromeos_startup.sh"
         install "chromeos_startup.sh" $ROOT/sbin/chromeos_startup.sh
         chmod 755 $ROOT/sbin/chromeos_startup.sh
     fi
+    
     if [ "$milestone" -gt "78" ]; then
         echo "Detected v78 or higher, patching chromeos-boot-alert to prevent blocking devmode virtually"
         move_bin "$ROOT/sbin/chromeos-boot-alert"
         install "chromeos-boot-alert" $ROOT/sbin/chromeos-boot-alert
         chmod 755 $ROOT/sbin/chromeos-boot-alert
     fi
+    
     echo "Installing murkmod components..."
     install "daemon.sh" $ROOT/sbin/murkmod-daemon.sh
     move_bin "$ROOT/usr/bin/crosh"
@@ -121,15 +233,19 @@ patch_root() {
     install "ssd_util.sh" $ROOT/usr/share/vboot/bin/ssd_util.sh
     install "image_patcher.sh" $ROOT/sbin/image_patcher.sh
     install "crossystem_boot_populator.sh" $ROOT/sbin/crossystem_boot_populator.sh
-    install "ssd_util.sh" $ROOT/usr/share/vboot/bin/ssd_util.sh
     mkdir -p "$ROOT/etc/opt/chrome/policies/managed"
     install "pollen.json" $ROOT/etc/opt/chrome/policies/managed/policy.json
     echo "Chmod-ing everything..."
-    chmod 777 $ROOT/sbin/murkmod-daemon.sh $ROOT/usr/bin/crosh $ROOT/usr/share/vboot/bin/ssd_util.sh $ROOT/sbin/image_patcher.sh $ROOT/etc/opt/chrome/policies/managed/policy.json $ROOT/sbin/crossystem_boot_populator.sh $ROOT/usr/share/vboot/bin/ssd_util.sh    
+    chmod 777 $ROOT/sbin/murkmod-daemon.sh $ROOT/usr/bin/crosh $ROOT/usr/share/vboot/bin/ssd_util.sh $ROOT/sbin/image_patcher.sh $ROOT/etc/opt/chrome/policies/managed/policy.json $ROOT/sbin/crossystem_boot_populator.sh
+    
+    # R125 FIX: Additional permissions for R125+
+    if [ "$milestone" -gt "122" ]; then
+        chmod 755 "$ROOT/usr/local/bin/murkmod-diagnose" 2>/dev/null || true
+    fi
+    
     echo "Done."
 }
 
-# https://www.chromium.org/chromium-os/developer-library/reference/infrastructure/lsb-release/
 lsbval() {
   local key="$1"
   local lsbfile="${2:-/etc/lsb-release}"
@@ -147,7 +263,7 @@ lsbval() {
 }
 
 get_asset() {
-    curl -s -f "https://api.github.com/repos/AerialiteLabs/murkmodTempFix/contents/$1" | jq -r ".content" | base64 -d
+    curl -s -f "https://api.github.com/repos/xXMariahScaryXx/murkmodTempFix/contents/$1" | jq -r ".content" | base64 -d
 }
 
 install() {
@@ -158,7 +274,6 @@ install() {
         rm -f "$TMP"
         exit
     fi
-    # Don't mv, that would break permissions
     cat "$TMP" >"$2"
     rm -f "$TMP"
 }
@@ -214,7 +329,6 @@ main() {
   echo "Enabling RW mount..."
   $SSD_UTIL --debug --remove_rootfs_verification --no_resign_kernel -i ${loop} --partitions 2
 
-  # for good measure
   sync
   
   echo "Mounting target..."
@@ -245,7 +359,6 @@ main() {
   if [ "$unfuckstateful" == "0" ]; then
     touch $ROOT/stateful_unfucked
     chmod 777 $ROOT/stateful_unfucked
-    # by creating the flag in advance we can prevent running mkfs.ext4 on stateful upon next boot, thus retaining user data
   fi
 
   sleep 2

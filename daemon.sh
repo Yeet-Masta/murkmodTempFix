@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# R125 FIX: Wait for startup to complete before starting daemon operations
+while [ ! -f /var/run/murkmod-startup-complete ]; do
+    sleep 1
+done
+
 run_plugin() {
     local script=$1
     while true; do
@@ -37,7 +42,12 @@ get_largest_cros_blockdev() {
 }
 
 doas() {
-    ssh -t -p 1337 -i /rootkey -oStrictHostKeyChecking=no root@127.0.0.1 "$@"
+    # R125 FIX: Use non-TTY mode during early operations
+    if [ -f /run/murkmod-critical-startup ]; then
+        ssh -T -p 1337 -i /rootkey -oStrictHostKeyChecking=no root@127.0.0.1 "$@"
+    else
+        ssh -t -p 1337 -i /rootkey -oStrictHostKeyChecking=no root@127.0.0.1 "$@"
+    fi
 }
 
 lsbval() {
@@ -176,7 +186,6 @@ EOF
 } &
 
 {
-    # technically this should go in chromeos_startup.sh but it would slow down the boot process
     echo "Waiting for boot on emergency restore..."
     wait_for_startup
     echo "Checking for restore flag..."

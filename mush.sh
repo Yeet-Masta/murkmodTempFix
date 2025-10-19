@@ -1,5 +1,70 @@
 #!/bin/bash
 
+# R125 FIX: Wait for startup to complete before allowing mush operations
+wait_for_safe_startup() {
+    local timeout=60
+    local elapsed=0
+    
+    while [ ! -f /var/run/murkmod-startup-complete ] && [ $elapsed -lt $timeout ]; do
+        if [ $elapsed -eq 0 ]; then
+            echo "System still starting up, please wait..."
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    
+    if [ $elapsed -ge $timeout ]; then
+        echo "⚠️  WARNING: Startup completion flag not found after ${timeout}s"
+        echo "⚠️  Continuing anyway, but system may be unstable"
+        sleep 2
+    fi
+    
+    # Check if we're in critical startup (stateful mounting)
+    if [ -f /run/murkmod-critical-startup ]; then
+        echo "⚠️  WARNING: Critical system operation in progress"
+        echo "⚠️  Please close this terminal and try again in a moment"
+        sleep 10
+        exit 1
+    fi
+}
+
+# R125 FIX: Check for R125+ and show warnings
+check_r125_compatibility() {
+    local milestone=$(grep CHROMEOS_RELEASE_CHROME_MILESTONE /etc/lsb-release 2>/dev/null | cut -d= -f2)
+    
+    if [ -n "$milestone" ] && [ "$milestone" -gt "122" ]; then
+        if [ ! -f /var/murkmod_r125_warning_shown ]; then
+            cat <<-'EOF'
+	
+	╔════════════════════════════════════════════════════════════════╗
+	║                    ⚠️  R125+ DETECTED  ⚠️                      ║
+	╠════════════════════════════════════════════════════════════════╣
+	║                                                                ║
+	║  You are running ChromeOS R125 or newer.                      ║
+	║  Murkmod has applied compatibility patches for this version.  ║
+	║                                                                ║
+	║  Known R125+ issues:                                          ║
+	║  • VT2 crashes during boot (FIXED in this version)            ║
+	║  • Terminal app may need manual launch                        ║
+	║  • Some features may behave differently                       ║
+	║                                                                ║
+	║  If you experience crashes:                                   ║
+	║  • SSH into the device: ssh -p 1337 root@127.0.0.1           ║
+	║  • Run diagnostic: /usr/local/bin/murkmod-diagnose            ║
+	║                                                                ║
+	╚════════════════════════════════════════════════════════════════╝
+	
+EOF
+            touch /var/murkmod_r125_warning_shown
+            sleep 3
+        fi
+    fi
+}
+
+# Call safety checks first
+wait_for_safe_startup
+check_r125_compatibility
+
 get_largest_cros_blockdev() {
     local largest size dev_name tmp_size remo
     size=0
@@ -135,10 +200,11 @@ main() {
 (23) [EXPERIMENTAL] Install Chromebrew
 (24) [EXPERIMENTAL] Install Gentoo Boostrap (dev_install)
 (25) Check for updates
+(26) Run R125 Diagnostic
 EOF
         
         swallow_stdin
-        read -r -p "> (1-25): " choice
+        read -r -p "> (1-26): " choice
         case "$choice" in
         1) runjob doas bash ;;
         2) runjob doas "cd /home/chronos; sudo -i -u chronos" ;;
@@ -165,7 +231,7 @@ EOF
         23) runjob attempt_chromebrew_install ;;
         24) runjob attempt_dev_install ;;
         25) runjob do_updates && exit 0 ;;
-        26) runjob do_dev_updates && exit 0 ;;
+        26) runjob run_r125_diagnostic ;;
         101) runjob hard_disable_nokill ;;
         111) runjob hard_enable_nokill ;;
         112) runjob ext_purge ;;
@@ -185,6 +251,24 @@ EOF
         *) echo && echo "Invalid option, dipshit." && echo ;;
         esac
     done
+}
+
+# R125 FIX: Diagnostic function
+run_r125_diagnostic() {
+    if [ -x /usr/local/bin/murkmod-diagnose ]; then
+        doas /usr/local/bin/murkmod-diagnose
+    else
+        echo "Diagnostic script not found. This may not be an R125+ installation."
+        echo "Running basic diagnostics..."
+        echo ""
+        echo "ChromeOS Version: $(grep CHROMEOS_RELEASE_CHROME_MILESTONE /etc/lsb-release | cut -d= -f2)"
+        echo "Startup Complete: $([ -f /var/run/murkmod-startup-complete ] && echo 'YES' || echo 'NO')"
+        echo "Critical Startup: $([ -f /run/murkmod-critical-startup ] && echo 'YES (UNSAFE)' || echo 'NO')"
+        echo ""
+        echo "VT Permissions:"
+        ls -la /dev/tty[0-9]* 2>/dev/null || echo "Cannot read VT devices"
+    fi
+    read -p "Press enter to continue..."
 }
 
 api_read_file() {
@@ -289,7 +373,6 @@ list_plugins() {
         PLUGIN_DESCRIPTION=$(grep -o 'PLUGIN_DESCRIPTION=".*"' "$plugin_script" | cut -d= -f2-)
         PLUGIN_AUTHOR=$(grep -o 'PLUGIN_AUTHOR=".*"' "$plugin_script" | cut -d= -f2-)
         PLUGIN_VERSION=$(grep -o 'PLUGIN_VERSION=".*"' "$plugin_script" | cut -d= -f2-)
-        # remove quotes from around each PLUGIN_* variable
         PLUGIN_NAME=${PLUGIN_NAME:1:-1}
         PLUGIN_FUNCTION=${PLUGIN_FUNCTION:1:-1}
         PLUGIN_DESCRIPTION=${PLUGIN_DESCRIPTION:1:-1}
@@ -301,7 +384,6 @@ list_plugins() {
 
     to_print=""
 
-    # Print menu options
     for i in "${!plugin_info[@]}"; do
         to_print="$to_print[][]${plugin_info[$i]}"
     done
@@ -320,17 +402,17 @@ do_dev_updates() {
 
 disable_ext() {
     local extid="$1"
-    echo "$extid" | grep -qE '^[a-z]{32}$' && chmod 000 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Extension ID $extid is invalid."
+    echo "$extid" | grep -qE '^[a-z]{32} && chmod 000 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Extension ID $extid is invalid."
 }
 
 disable_ext_nokill() {
     local extid="$1"
-    echo "$extid" | grep -qE '^[a-z]{32}$' && chmod 000 "/home/chronos/user/Extensions/$extid" || "Extension ID $extid is invalid."
+    echo "$extid" | grep -qE '^[a-z]{32} && chmod 000 "/home/chronos/user/Extensions/$extid" || "Extension ID $extid is invalid."
 }
 
 enable_ext_nokill() {
     local extid="$1"
-    echo "$extid" | grep -qE '^[a-z]{32}$' && chmod 777 "/home/chronos/user/Extensions/$extid" || "Invalid extension id."
+    echo "$extid" | grep -qE '^[a-z]{32} && chmod 777 "/home/chronos/user/Extensions/$extid" || "Invalid extension id."
 }
 
 ext_purge() {
@@ -349,29 +431,29 @@ hard_enable_nokill() {
 
 autodisableexts() {
     echo "Disabling extensions..."
-    disable_ext_nokill "haldlgldplgnggkjaafhelgiaglafanh" # GoGuardian
-    disable_ext_nokill "dikiaagfielfbnbbopidjjagldjopbpa" # Clever Plus
-    disable_ext_nokill "cgbbbjmgdpnifijconhamggjehlamcif" # Gopher Buddy
-    disable_ext_nokill "inoeonmfapjbbkmdafoankkfajkcphgd" # Read and Write for Google Chrome
-    disable_ext_nokill "enfolipbjmnmleonhhebhalojdpcpdoo" # Screenshot reader
-    disable_ext_nokill "joflmkccibkooplaeoinecjbmdebglab" # Securly
-    disable_ext_nokill "iheobagjkfklnlikgihanlhcddjoihkg" # Securly again
-    disable_ext_nokill "ckecmkbnoanpgplccmnoikfmpcdladkc" # Another Securly
-    disable_ext_nokill "adkcpkpghahmbopkjchobieckeoaoeem" # LightSpeed
-    disable_ext_nokill "jcdhmojfecjfmbdpchihbeilohgnbdci" # Cisco Umbrella
-    disable_ext_nokill "jdogphakondfdmcanpapfahkdomaicfa" # ContentKeeper Authenticator
-    disable_ext_nokill "aceopacgaepdcelohobicpffbbejnfac" # Hapara
-    disable_ext_nokill "kmffehbidlalibfeklaefnckpidbodff" # iBoss
-    disable_ext_nokill "jaoebcikabjppaclpgbodmmnfjihdngk" # LightSpeed Classroom
-    disable_ext_nokill "keknjhjnninjadlkapachhhjfmfnofcb" # LanSchool Air 
-    disable_ext_nokill "ghlpmldmjjhmdgmneoaibbegkjjbonbk" # Blocksi
-    disable_ext_nokill "ddfbkhpmcdbciejenfcolaaiebnjcbfc" # Linewize
-    disable_ext_nokill "jfbecfmiegcjddenjhlbhlikcbfmnafd" # Securly Classroom
-    disable_ext_nokill "hkobaiihndnbfhbkmjjfbdimfbdcppdh" # Another Securly Classroom
-    disable_ext_nokill "jjpmjccpemllnmgiaojaocgnakpmfgjg" # Impero
-    disable_ext_nokill "feepmdlmhplaojabeoecaobfmibooaid" # OrbitNote
-    disable_ext_nokill "dmhpekdihnngbkinliefnclgmgkpjeoo" # GoGuardian License
-    disable_ext_nokill "modkadcjnbamppdpdkfoackjnhnfiogi" # MyMPS Chrome SSO
+    disable_ext_nokill "haldlgldplgnggkjaafhelgiaglafanh"
+    disable_ext_nokill "dikiaagfielfbnbbopidjjagldjopbpa"
+    disable_ext_nokill "cgbbbjmgdpnifijconhamggjehlamcif"
+    disable_ext_nokill "inoeonmfapjbbkmdafoankkfajkcphgd"
+    disable_ext_nokill "enfolipbjmnmleonhhebhalojdpcpdoo"
+    disable_ext_nokill "joflmkccibkooplaeoinecjbmdebglab"
+    disable_ext_nokill "iheobagjkfklnlikgihanlhcddjoihkg"
+    disable_ext_nokill "ckecmkbnoanpgplccmnoikfmpcdladkc"
+    disable_ext_nokill "adkcpkpghahmbopkjchobieckeoaoeem"
+    disable_ext_nokill "jcdhmojfecjfmbdpchihbeilohgnbdci"
+    disable_ext_nokill "jdogphakondfdmcanpapfahkdomaicfa"
+    disable_ext_nokill "aceopacgaepdcelohobicpffbbejnfac"
+    disable_ext_nokill "kmffehbidlalibfeklaefnckpidbodff"
+    disable_ext_nokill "jaoebcikabjppaclpgbodmmnfjihdngk"
+    disable_ext_nokill "keknjhjnninjadlkapachhhjfmfnofcb"
+    disable_ext_nokill "ghlpmldmjjhmdgmneoaibbegkjjbonbk"
+    disable_ext_nokill "ddfbkhpmcdbciejenfcolaaiebnjcbfc"
+    disable_ext_nokill "jfbecfmiegcjddenjhlbhlikcbfmnafd"
+    disable_ext_nokill "hkobaiihndnbfhbkmjjfbdimfbdcppdh"
+    disable_ext_nokill "jjpmjccpemllnmgiaojaocgnakpmfgjg"
+    disable_ext_nokill "feepmdlmhplaojabeoecaobfmibooaid"
+    disable_ext_nokill "dmhpekdihnngbkinliefnclgmgkpjeoo"
+    disable_ext_nokill "modkadcjnbamppdpdkfoackjnhnfiogi"
     ext_purge
     echo "Done."
 }
@@ -412,8 +494,6 @@ enable_dev_boot_usb() {
   sed -i 's/\(dev_boot_usb=\).*/\11/' /usr/bin/crossystem
 }
 
-
-
 do_updates() {
     doas "bash <(curl -SLk https://raw.githubusercontent.com/rainestorme/murkmod/main/murkmod.sh)"
     exit
@@ -435,7 +515,6 @@ show_plugins() {
         PLUGIN_DESCRIPTION=$(grep -o 'PLUGIN_DESCRIPTION=".*"' "$plugin_script" | cut -d= -f2-)
         PLUGIN_AUTHOR=$(grep -o 'PLUGIN_AUTHOR=".*"' "$plugin_script" | cut -d= -f2-)
         PLUGIN_VERSION=$(grep -o 'PLUGIN_VERSION=".*"' "$plugin_script" | cut -d= -f2-)
-        # remove quotes from around each PLUGIN_* variable
         PLUGIN_NAME=${PLUGIN_NAME:1:-1}
         PLUGIN_FUNCTION=${PLUGIN_FUNCTION:1:-1}
         PLUGIN_DESCRIPTION=${PLUGIN_DESCRIPTION:1:-1}
@@ -445,19 +524,16 @@ show_plugins() {
         fi
     done
 
-    # Print menu options
     for i in "${!plugin_info[@]}"; do
         printf "%s. %s\n" "$((i+1))" "${plugin_info[$i]}"
     done
 
-    # Prompt user for selection
     read -p "> Select a plugin (or q to quit): " selection
 
     if [ "$selection" = "q" ]; then
         return 0
     fi
 
-    # Validate user's selection
     if ! [[ "$selection" =~ ^[1-9][0-9]*$ ]]; then
         echo "Invalid selection. Please enter a number between 0 and ${#plugin_info[@]}"
         return 1
@@ -468,15 +544,12 @@ show_plugins() {
         return 1
     fi
 
-    # Get plugin function name and corresponding file
     selected_plugin=${plugin_info[$((selection-1))]}
     selected_file=${plugin_files[$((selection-1))]}
 
-    # Execute the plugin
-    bash <(cat $selected_file) # weird syntax due to noexec mount
+    bash <(cat $selected_file)
     return 0
 }
-
 
 install_plugins() {
     clear
@@ -485,12 +558,8 @@ install_plugins() {
     file_contents=()
     download_urls=()    
     for entry in $(echo "$json" | jq -c '.[]'); do
-        # Check if the entry is a file (type equals "file")
         if [[ $(echo "$entry" | jq -r '.type') == "file" ]]; then
-            # Get the download URL for the file
             download_url=$(echo "$entry" | jq -r '.download_url')
-            
-            # Fetch the content of the file and append it to the array
             file_contents+=("$(curl -s "$download_url")")
             download_urls+=("$download_url")
         fi
@@ -498,11 +567,9 @@ install_plugins() {
     
     plugin_info=()
     for content in "${file_contents[@]}"; do
-        # Create a temporary file to hold the content
         tmp_file=$(mktemp)
         echo "$content" > "$tmp_file"
         
-        # Extract information from the file
         PLUGIN_NAME=$(grep -o 'PLUGIN_NAME=.*' "$tmp_file" | cut -d= -f2-)
         PLUGIN_FUNCTION=$(grep -o 'PLUGIN_FUNCTION=.*' "$tmp_file" | cut -d= -f2-)
         PLUGIN_DESCRIPTION=$(grep -o 'PLUGIN_DESCRIPTION=.*' "$tmp_file" | cut -d= -f2-)
@@ -513,11 +580,8 @@ install_plugins() {
         PLUGIN_DESCRIPTION=${PLUGIN_DESCRIPTION:1:-1}
         PLUGIN_AUTHOR=${PLUGIN_AUTHOR:1:-1}
         
-        # Add information to the plugin_info array
         plugin_info+=(" $PLUGIN_NAME (version $PLUGIN_VERSION by $PLUGIN_AUTHOR) \n       $PLUGIN_DESCRIPTION")
-
         
-        # Remove the temporary file
         rm "$tmp_file"
     done
     
@@ -533,7 +597,6 @@ install_plugins() {
                 printf "    "
             fi
             printf "${plugin_info[$i]}"
-            # see if the plugin is already installed - get the filename of the plugin from its download url
             filename=$(echo "${download_urls[$i]}" | rev | cut -d/ -f1 | rev)
             if [ -f "/mnt/stateful_partition/murkmod/plugins/$filename" ]; then
                 echo " (installed)"
@@ -542,14 +605,12 @@ install_plugins() {
             fi
         done
 
-        # Read a single character from the user
         read -s -n 1 key
 
-        # Check the pressed key and update the selected option
         case "$key" in
-            "q") break ;;  # Exit the loop if the user presses 'q'
-            "A") ((selected_option--)) ;;  # Arrow key up
-            "B") ((selected_option++)) ;;  # Arrow key down
+            "q") break ;;
+            "A") ((selected_option--)) ;;
+            "B") ((selected_option++)) ;;
             "") clear
                 echo "Using URL: ${download_urls[$selected_option]}"
                 echo "Installing plugin..."
@@ -557,16 +618,13 @@ install_plugins() {
                 echo "Done!"
                 ;;
         esac
-        # Ensure the selected option stays within bounds
         ((selected_option = selected_option < 0 ? 0 : selected_option))
         ((selected_option = selected_option >= ${#plugin_info[@]} ? ${#plugin_info[@]} - 1 : selected_option))
 
-        # Clear the screen for the next iteration
         clear
         echo "Available plugins (press q to exit):"
     done
 }
-
 
 uninstall_plugins() {
     clear
@@ -625,7 +683,6 @@ uninstall_plugins() {
         PLUGIN_DESCRIPTION=$(grep -o 'PLUGIN_DESCRIPTION=".*"' "$plugin_file" | cut -d= -f2-)
         PLUGIN_AUTHOR=$(grep -o 'PLUGIN_AUTHOR=".*"' "$plugin_file" | cut -d= -f2-)
         PLUGIN_VERSION=$(grep -o 'PLUGIN_VERSION=".*"' "$plugin_file" | cut -d= -f2-)
-        # remove quotes
         PLUGIN_NAME=${PLUGIN_NAME:1:-1}
         PLUGIN_FUNCTION=${PLUGIN_FUNCTION:1:-1}
         PLUGIN_DESCRIPTION=${PLUGIN_DESCRIPTION:1:-1}
@@ -695,17 +752,17 @@ revert() {
     sleep 2
     doas reboot
     sleep 1000
-    echo "Your chromebook should have rebooted by now. If your chromebook doesn't reboot in the next couple of seconds, press Esc+Refresh to do it manually."
+    echo "Your chromebook should have rebooted by now. If it doesn't reboot in the next couple of seconds, press Esc+Refresh to do it manually."
 }
 
-harddisableext() { # calling it "hard disable" because it only reenables when you press
+harddisableext() {
     read -r -p "Enter extension ID > " extid
-    echo "$extid" | grep -qE '^[a-z]{32}$' && chmod 000 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Invalid extension id."
+    echo "$extid" | grep -qE '^[a-z]{32} && chmod 000 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Invalid extension id."
 }
 
 hardenableext() {
     read -r -p "Enter extension ID > " extid
-    echo "$extid" | grep -qE '^[a-z]{32}$' && chmod 777 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Invalid extension id."
+    echo "$extid" | grep -qE '^[a-z]{32} && chmod 777 "/home/chronos/user/Extensions/$extid" && kill -9 $(pgrep -f "\-\-extension\-process") || "Invalid extension id."
 }
 
 softdisableext() {
@@ -716,12 +773,11 @@ softdisableext() {
     done
 }
 
-# https://chromium.googlesource.com/chromiumos/docs/+/master/lsb-release.md
 lsbval() {
   local key="$1"
   local lsbfile="${2:-/etc/lsb-release}"
 
-  if ! echo "${key}" | grep -Eq '^[a-zA-Z0-9_]+$'; then
+  if ! echo "${key}" | grep -Eq '^[a-zA-Z0-9_]+; then
     return 1
   fi
 
@@ -733,9 +789,7 @@ lsbval() {
     }" "${lsbfile}"
 }
 
-
 install_crouton() {
-    # check if crouuton is already installed. if so, prompt the user to delete their old chroot
     if [ -f /mnt/stateful_partition/crouton_installed ] ; then
         read -p "Crouton is already installed. Would you like to delete your old chroot and create a new one? (y/N) " yn
         case $yn in
@@ -745,14 +799,10 @@ install_crouton() {
         esac
     fi
     echo "Installing Crouton..."
-    # if this is before v107, then we don't want to use the silence branch - audio is still supported
     local local_version=$(lsbval GOOGLE_RELEASE)
     if (( ${local_version%%\.*} <= 107 )); then
         doas "bash <(curl -SLk https://git.io/JZEs0) -r bullseye -t xfce"
     else
-        # theoretically we could copy or link the includes for cras, but im not entirely sure how to do that
-        # CROUTON_BRANCH=longliveaudiotools supports audio at the versions we're looking at, but it's experimental and tends to be broken
-        # ig we can prompt the user?
         echo "Your version of ChromeOS is too recent to support the current main branch of Crouton. You can either install Crouton without audio support, or install the experimental audio branch. Which would you like to do?"
         echo "1. Install without audio support"
         echo "2. Install with experimental audio support (may be extremely broken)"
@@ -766,7 +816,7 @@ install_crouton() {
             doas "CROUTON_BRANCH=silence bash <(curl -SLk https://git.io/JZEs0) -r bullseye -t xfce"
         fi
     fi
-    doas "bash <(echo 'touch /mnt/stateful_partition/crouton_installed')" # idfk about the syntax but it seems to work so im not complaining
+    doas "bash <(echo 'touch /mnt/stateful_partition/crouton_installed')"
 }
 
 run_crouton() {
@@ -845,7 +895,6 @@ attempt_chromeos_update(){
 
         echo "Backups complete, actually updating now..."
 
-        # read choice
         local reco_dl=$(jq ".builds.$board[].$hwid.pushRecoveries[$latest_milestone]" <<< "$builds")
         local tmpdir=/mnt/stateful_partition/update_tmp/
         doas mkdir $tmpdir
@@ -935,7 +984,6 @@ attempt_backup_update(){
         echo "Backups complete, actually updating now..."
     fi
 
-    # read choice
     local reco_dl=$(jq ".builds.$board[].$hwid.pushRecoveries[$latest_milestone]" <<< "$builds")
     local tmpdir=/mnt/stateful_partition/update_tmp/
     doas mkdir $tmpdir
@@ -961,7 +1009,7 @@ attempt_backup_update(){
     echo "Installing root patch to ${rootdev}..."
     doas dd if="${loop}p3" of="$rootdev" status=progress
 
-    echo "Setting crossystem and vpd block_devmode..." # idrk why, but it can't hurt to be safe
+    echo "Setting crossystem and vpd block_devmode..."
     doas crossystem.old block_devmode=0
     doas vpd -i RW_VPD -s block_devmode=0
 
@@ -998,7 +1046,7 @@ attempt_restore_backup_backup() {
 }
 
 attempt_chromebrew_install() {
-    doas 'sudo -i -u chronos curl -Ls git.io/vddgY | bash' # kinda works now with cros_debug
+    doas 'sudo -i -u chronos curl -Ls git.io/vddgY | bash'
     read -p 'Press enter to exit'
 }
 
